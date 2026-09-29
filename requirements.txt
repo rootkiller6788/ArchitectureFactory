@@ -1,0 +1,9 @@
+# 核心链路零第三方依赖：只跑 main.py 不需要装任何东西。
+# 需要 CPython >= 3.12（用到标准库的 math.sumprod，见 README 附录 C 坑 52）。
+#
+# 唯一需要装的场景是跑测试：
+#   pip install pytest
+#
+# 可选扩展（把微型 autograd 换成真 torch 组件做一致性对照）：
+#   pip install "torch>=2.1"
+pytest>=7.4

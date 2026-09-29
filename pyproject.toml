@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "architecturefactory"
+version = "0.1.0"
+description = "ArchitectureFactory — 把架构变成可解析、可组合、可搜索的 IR，并搜索出 Architecture DB"
+readme = "README.md"
+#: 需要 3.12+：`math.sumprod`（C 实现的内积）自 CPython 3.12 起提供。
+#: 它是本项目唯一的性能决策 —— matmul 的前向+反向占代理训练 71% 的时间，
+#: 换成 sumprod 后前向快 2.6×、反向快 2.3×，而**没有引入任何第三方依赖**。
+requires-python = ">=3.12"
+license = { text = "MIT" }
+
+# 核心链路零第三方依赖：落地约束「4060 8G 单机可跑」。
+#
+# 这一条在本项目里代价很明确：**微型张量 autograd 引擎与全部组件都是手写的**。
+# 手写不是为了炫技，而是因为本项目要回答的是「同一个 IR 空间里，哪种装配更好」——
+# 这需要一个能被完全拆开、逐位复现、且**真的能训练**的观测对象。
+# 用 PyTorch 建模型，得到的是「某个框架版本在某一天的行为」，梯度与初始化都不可复核。
+# 生产环境当然该用 PyTorch，因此留了 torch extra 做一致性对照。
+dependencies = []
+
+[project.optional-dependencies]
+# 可选扩展：换成真 torch 组件做一致性对照
+torch = ["torch>=2.1"]
+dev = ["pytest>=7.4"]
+
+[project.scripts]
+architecturefactory = "architecturefactory.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
