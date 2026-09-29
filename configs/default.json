@@ -1,0 +1,90 @@
+{
+  "pipeline_id": "architecturefactory",
+  "version_tag": "v1",
+  "seed": 20261001,
+  "task": {
+    "_comment": "代理任务 = index-recall。序列 = [x0 x1 ... x_{P-1} | q]，目标 = x_q。末尾的 q 是保留的『下标 token』。解它需要按位置寻址：一层注意力（配位置嵌入）能学，门控递推结构上做不到。实测 attention 0.95 / ssm 0.17（启发式基线 0.25）—— 见 README 附录 B。",
+    "name": "index-recall",
+    "vocab_size": 12,
+    "n_items": 4,
+    "n_train": 96,
+    "n_test": 32
+  },
+  "space": {
+    "_comment": "设计空间（交叉展开 = IR 搜索空间）。n_heads 只对 attention/hybrid 生效，n_experts 只对 moe 生效；无关取值不进 spec_id。d_model 取 [16,20]：实测 d16 在默认协议下 mean 0.925 / min 0.844，d20 次之但仍在基线上方很多；更小的 d12 会退化成不稳定（mean 0.588），那会把「架构差异」和「初始化噪声」混在一起。",
+    "mixers": [
+      "attention",
+      "ssm",
+      "hybrid"
+    ],
+    "ffns": [
+      "mlp",
+      "swiglu",
+      "moe"
+    ],
+    "norms": [
+      "layernorm",
+      "rmsnorm"
+    ],
+    "n_layers": [
+      1,
+      2
+    ],
+    "d_models": [
+      16,
+      20
+    ],
+    "n_heads": [
+      2,
+      4
+    ],
+    "n_experts": [
+      2
+    ],
+    "residuals": [
+      "pre"
+    ]
+  },
+  "proxy": {
+    "_comment": "所有架构共享同一训练预算（可比性的前提）：同样的步数 / 学习率 / 批大小 / 数据顺序。一步 = 一个 batch 的一次更新。batch 比 steps 更关键：b24 s80 的 mean 0.925 好过 b16 s160 的 0.906，而计算量只有 75% —— 梯度方差小，模型能可靠地「开窍」。改这里等于改协议，历史试验就不可比了。",
+    "steps": 80,
+    "lr": 0.3,
+    "batch_size": 24,
+    "momentum": 0.9,
+    "init_scale": 0.08,
+    "grad_clip": 1.0,
+    "eval_every": 160
+  },
+  "objectives": [
+    "accuracy",
+    "params"
+  ],
+  "metric_directions": {
+    "accuracy": "max",
+    "params": "min",
+    "flops": "min",
+    "train_seconds": "min"
+  },
+  "search": {
+    "_comment": "三种搜索器各跑 trials 次（同一预算），跨搜索器共享去重集合。max_params 是构建前的硬预算，超了就拒绝装配。trials 是唯一直接决定总耗时的旋钮。",
+    "trials": 8,
+    "searchers": [
+      "random",
+      "evolution",
+      "bayesian"
+    ],
+    "population": 6,
+    "mutation_rate": 0.35,
+    "elite": 2,
+    "kappa": 2.0,
+    "n_init": 6,
+    "n_parents": 4,
+    "max_params": 120000
+  },
+  "ablation": {
+    "reference": "attention-swiglu-rmsnorm-l2-d16-h4"
+  },
+  "select": {
+    "rule": "max_hypervolume"
+  }
+}
