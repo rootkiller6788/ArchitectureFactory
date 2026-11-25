@@ -71,8 +71,9 @@ def frontier_table(result: ArchResult, digits: int = 4) -> str:
     objs = list(result.objectives)
     head = ["spec_id", *objs, "searcher", "rank"]
     rows = []
+    idx = result.trial_index()  # 一次建索引，避免每个前沿点都线性 find
     for tid in result.frontier:
-        t = result.find(tid)
+        t = idx.get(tid)
         if t is None:
             continue
         rows.append(
