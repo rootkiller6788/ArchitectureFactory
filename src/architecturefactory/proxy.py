@@ -67,25 +67,6 @@ def protocol_digest(cfg: dict[str, Any]) -> str:
 # ----------------------------------------------------------------------
 # 优化器：动量 SGD + 全局范数裁剪
 # ----------------------------------------------------------------------
-def _iter_flat(grad: list[Any]):
-    """遍历梯度的所有元素（1D 或 2D），产出 ``(行索引, 列索引或 None, 值)``。"""
-    if grad and isinstance(grad[0], list):
-        for i, row in enumerate(grad):
-            for j, v in enumerate(row):
-                yield i, j, v
-    else:
-        for i, v in enumerate(grad):
-            yield i, None, v
-
-
-def _apply_flat(param: list[Any], idx: tuple[int, int | None], delta: float) -> None:
-    i, j = idx
-    if j is None:
-        param[i] += delta
-    else:
-        param[i][j] += delta
-
-
 def sgd_momentum_step(
     params: Sequence[Tensor],
     velocity: dict[int, list[Any]],
@@ -96,11 +77,21 @@ def sgd_momentum_step(
     """一步更新。返回**裁剪前**的全局梯度范数（用于诊断训练是否稳定）。
 
     先按全局范数算一个统一缩放系数再更新 —— 逐参数各自裁剪会改变梯度方向。
+
+    **直接双层遍历梯度**，不再为每个元素 yield 一个 ``(i, j, v)`` 元组：
+    这个循环在每一步、每个参数元素上都会跑，生成器与元组解包的开销在这里
+    比算术本身还大。累加顺序保持行优先，梯度范数与更新结果逐位不变。
     """
     total = 0.0
     for t in params:
-        for _, _, g in _iter_flat(t.grad):
-            total += g * g
+        g = t.grad
+        if g and isinstance(g[0], list):
+            for row in g:
+                for v in row:
+                    total += v * v
+        else:
+            for v in g:
+                total += v * v
     norm = math.sqrt(total)
     k = 1.0
     if grad_clip > 0.0 and norm > grad_clip:
@@ -109,16 +100,24 @@ def sgd_momentum_step(
     for t in params:
         key = id(t)
         vel = velocity.get(key)
+        g = t.grad
+        data = t.data
         if vel is None:
-            vel = _zeros_like(t.grad)
+            vel = _zeros_like(g)
             velocity[key] = vel
-        for i, j, g in _iter_flat(t.grad):
-            if j is None:
-                vel[i] = momentum * vel[i] + g * k
-                t.data[i] -= lr * vel[i]
-            else:
-                vel[i][j] = momentum * vel[i][j] + g * k
-                t.data[i][j] -= lr * vel[i][j]
+        if g and isinstance(g[0], list):
+            for i, row in enumerate(g):
+                vr = vel[i]
+                dr = data[i]
+                for j, v in enumerate(row):
+                    nv = momentum * vr[j] + v * k
+                    vr[j] = nv
+                    dr[j] -= lr * nv
+        else:
+            for i, v in enumerate(g):
+                nv = momentum * vel[i] + v * k
+                vel[i] = nv
+                data[i] -= lr * nv
     return norm
 
 
