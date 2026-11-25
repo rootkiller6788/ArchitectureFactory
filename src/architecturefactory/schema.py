@@ -400,6 +400,14 @@ class ArchResult:
     cfg: dict[str, Any] = field(default_factory=dict)
 
     # -- 便捷查询 ----------------------------------------------------
+    def trial_index(self) -> dict[str, Trial]:
+        """``trial_id → Trial`` 的一次性索引。
+
+        报告、流水线与 CLI 都要按键查多次；逐个调用 :meth:`find` 会退化成
+        O(n²)。调用方建一次索引再查，既快又不会在循环里重复扫描。
+        """
+        return {t.trial_id: t for t in self.trials}
+
     def find(self, trial_id: str) -> Trial | None:
         for t in self.trials:
             if t.trial_id == trial_id:
@@ -413,7 +421,9 @@ class ArchResult:
         return None
 
     def frontier_trials(self) -> list[Trial]:
-        return [t for t in self.trials if t.trial_id in set(self.frontier)]
+        # 集合必须提到推导式外：写在条件里会被每个元素重新构造一次。
+        ids = set(self.frontier)
+        return [t for t in self.trials if t.trial_id in ids]
 
     def best_by(self, metric: str) -> Trial | None:
         if not self.trials:
