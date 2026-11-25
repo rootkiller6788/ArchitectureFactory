@@ -112,19 +112,31 @@ class Tensor:
         self.grad = _zeros_like(self.data)
 
     def backward(self) -> None:
-        """从本张量出发做反向传播；本张量视作标量输出（grad=1）。"""
+        """从本张量出发做反向传播；本张量视作标量输出（grad=1）。
+
+        **拓扑排序用显式栈而不是递归。** 一层 block 有几十个算子，一个 batch
+        又是多个样本的图之和，递归深度会随层数线性增长，最终撞上解释器的递归
+        上限（默认 1000）—— 表现为「模型一深就 RecursionError」，而不是梯度
+        算错，因此容易被误诊。显式栈产出的顺序与递归后序遍历**完全一致**：
+        先按父张量的原顺序入栈，再反转弹出，累计顺序因此不变。
+        """
         topo: list[Tensor] = []
         seen: set[int] = set()
-
-        def build(t: Tensor) -> None:
+        stack: list[tuple[Tensor, bool]] = [(self, False)]
+        while stack:
+            t, expanded = stack.pop()
+            if expanded:
+                topo.append(t)
+                continue
             if id(t) in seen:
-                return
+                continue
             seen.add(id(t))
-            for p in t._parents:
-                build(p)
-            topo.append(t)
+            stack.append((t, True))
+            # 逆序入栈 ⇒ 弹出顺序仍与父张量声明顺序一致（与递归版相同）
+            for p in reversed(t._parents):
+                if id(p) not in seen:
+                    stack.append((p, False))
 
-        build(self)
         self.grad = _ones_like(self.data)
         for t in reversed(topo):
             if t._backward is not None:

@@ -181,3 +181,16 @@ def test_softmax_rows_sums_to_one(rng):
     p = ag.softmax_rows(a).data
     for row in p:
         assert abs(sum(row) - 1.0) < 1e-9
+
+
+def test_backward_survives_deep_graph():
+    """深计算图不能靠递归拓扑排序 —— 否则层数一多就 RecursionError。
+
+    这里刻意建 5000 个串联算子（远高于默认递归上限 1000），断言仍能反传到叶子。
+    """
+    x = ag.constant([1.0])
+    y = x
+    for _ in range(5000):
+        y = ag.scale(y, 1.0)
+    y.backward()
+    assert x.grad == [1.0]
