@@ -77,6 +77,9 @@ class Searcher:
         self.pool = expand_space(space, vocab_size)
         if not self.pool:
             raise ValueError("设计空间展开为空，检查 configs 的 space 段")
+        #: 候选池的 spec_id 与 ``self.pool`` 一一对应。池子是规范化的，
+        #: 预计算一次后，每次提议只比字符串，不再反复调用 ``canonical()``。
+        self.pool_ids = [s.spec_id for s in self.pool]
         self.rng = make_rng(seed, "search", self.name)
         #: **跨搜索器共享**的「已提议」集合。三个搜索器各跑各的，但架构数据库只有一份：
         #: 同一个 ``spec_id`` 只该被评估一次。否则前沿上会出现重复点、
@@ -150,17 +153,23 @@ class Searcher:
         ).canonical()
 
     def _random_from_pool(self) -> ArchSpec | None:
-        """从池子里随机取一个没提过的点（池子耗尽则返回 ``None``）。"""
-        for _ in range(len(self.pool) * 2):
-            s = self.rng.choice(self.pool).canonical()
-            if s.spec_id not in self.proposed:
-                self.proposed.add(s.spec_id)
-                return s
-        for s in self.pool:  # 兜底：顺序扫一遍
-            c = s.canonical()
-            if c.spec_id not in self.proposed:
-                self.proposed.add(c.spec_id)
-                return c
+        """从池子里随机取一个没提过的点（池子耗尽则返回 ``None``）。
+
+        池子里的对象在 ``__init__`` 已经规范化过，``pool_ids`` 也预计算好了，
+        因此这里**不再**为每次尝试重新 ``canonical()``。``randrange`` 与
+        ``choice`` 走同一个 ``_randbelow``，随机消费次数不变。
+        """
+        n = len(self.pool)
+        for _ in range(n * 2):
+            idx = self.rng.randrange(n)
+            sid = self.pool_ids[idx]
+            if sid not in self.proposed:
+                self.proposed.add(sid)
+                return self.pool[idx]
+        for idx, sid in enumerate(self.pool_ids):  # 兜底：顺序扫一遍
+            if sid not in self.proposed:
+                self.proposed.add(sid)
+                return self.pool[idx]
         return None
 
 
@@ -173,16 +182,18 @@ class RandomSearcher(Searcher):
         super().__init__(*a, **kw)
         self.order = list(self.pool)
         self.rng.shuffle(self.order)
+        self.order_ids = [s.spec_id for s in self.order]
         self.cursor = 0
 
     def propose(self, history: list[Trial]) -> ArchSpec | None:
         self.pending_parents = []  # 随机搜索没有父本：点与点之间互不相关
         while self.cursor < len(self.order):
-            spec = self.order[self.cursor].canonical()
+            idx = self.cursor
             self.cursor += 1
-            if spec.spec_id not in self.proposed:
-                self.proposed.add(spec.spec_id)
-                return spec
+            sid = self.order_ids[idx]
+            if sid not in self.proposed:
+                self.proposed.add(sid)
+                return self.order[idx]
         return None
 
 
@@ -270,11 +281,15 @@ class BayesianSearcher(Searcher):
         from .surrogate import fit, lcb
 
         model = fit(history, self.objectives)
-        candidates = [s.canonical() for s in self.pool if s.spec_id not in self.proposed]
+        candidates = [
+            (sid, s)
+            for sid, s in zip(self.pool_ids, self.pool)
+            if sid not in self.proposed
+        ]
         if not candidates:
             return None
-        best = min(candidates, key=lambda s: lcb(model, s, self.kappa))
-        self.proposed.add(best.spec_id)
+        best_sid, best = min(candidates, key=lambda ss: lcb(model, ss[1], self.kappa))
+        self.proposed.add(best_sid)
         # 代理是拿哪些点拟合的 —— 落进血统图的 derives 边
         self.pending_parents = [t.trial_id for t in model.source_trials[: self.n_parents]]
         return best
