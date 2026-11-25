@@ -50,7 +50,7 @@ def utcnow() -> str:
 # ----------------------------------------------------------------------
 # 决策变量：ArchSpec
 # ----------------------------------------------------------------------
-@dataclass
+@dataclass(slots=True)
 class ArchSpec:
     """一次搜索里的「架构」—— 即 IR 搜索空间里的一个点。
 
@@ -171,7 +171,7 @@ class ArchSpec:
 # ----------------------------------------------------------------------
 # IR：可组合图
 # ----------------------------------------------------------------------
-@dataclass
+@dataclass(slots=True)
 class BlockIR:
     """一个 Transformer-ish block：Mixer → Residual → FFN → Residual。"""
 
@@ -199,7 +199,7 @@ class BlockIR:
         return cls(**d)
 
 
-@dataclass
+@dataclass(slots=True)
 class ArchIR:
     """``ArchSpec`` 解析出来的可组合图（可序列化）。
 
@@ -242,7 +242,7 @@ class ArchIR:
 # ----------------------------------------------------------------------
 # 度量
 # ----------------------------------------------------------------------
-@dataclass
+@dataclass(slots=True)
 class Profile:
     """结构画像：参数量 / FLOPs / 激活元素数。**全部可手算、可逐位复现。**"""
 
@@ -266,7 +266,7 @@ class Profile:
         return cls(**d)
 
 
-@dataclass
+@dataclass(slots=True)
 class Evaluation:
     """一次代理评估的产物。质量 + 成本都记下来。"""
 
@@ -302,7 +302,7 @@ class Evaluation:
 # ----------------------------------------------------------------------
 # 试验 / 版本 / 结果
 # ----------------------------------------------------------------------
-@dataclass
+@dataclass(slots=True)
 class Trial:
     """搜索里的一次试验。``spec_id`` 是决策变量，``evaluation`` 自带结果（见 skill 坑 15）。"""
 
@@ -359,7 +359,7 @@ class Trial:
         )
 
 
-@dataclass
+@dataclass(slots=True)
 class Version:
     """内容寻址版本：digest 由**被搜索对象的定义**决定（任务 + 空间 + 种子），
     不由搜索配置决定 —— 换一个搜索器只该产生新的试验，不该产生新的版本号。
@@ -391,7 +391,7 @@ class Version:
         )
 
 
-@dataclass
+@dataclass(slots=True)
 class ArchResult:
     """整条流水线的产物。"""
 

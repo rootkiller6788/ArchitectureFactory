@@ -46,7 +46,7 @@ __all__ = [
 TASK_NAMES = ("index-recall", "induction-recall")
 
 
-@dataclass
+@dataclass(slots=True)
 class Dataset:
     """定长序列 + 单目标。``inputs`` 每行长度相同（= ``Task.seq_len``）。"""
 
@@ -60,7 +60,7 @@ class Dataset:
         return {"n": len(self), "seq_len": len(self.inputs[0]) if self.inputs else 0}
 
 
-@dataclass
+@dataclass(slots=True)
 class Task:
     """任务定义。**它是「被搜索对象」的一半**，所以整体进版本摘要。
 

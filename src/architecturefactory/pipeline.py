@@ -51,7 +51,7 @@ OUT_FILES = (
 )
 
 
-@dataclass
+@dataclass(slots=True)
 class EvalOutcome:
     """一次评估的结果。``trial`` 为 ``None`` 表示被拒绝（原因在 ``reason``）。"""
 

@@ -70,7 +70,7 @@ KIND_NORM_W = "norm_w"
 KIND_NORM_B = "norm_b"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class ParamDef:
     """组件对参数的一条声明。``name`` 是组件内的相对名（``wq`` / ``b1`` / ...）。"""
 
@@ -82,7 +82,7 @@ class ParamDef:
 # ----------------------------------------------------------------------
 # 组件协议
 # ----------------------------------------------------------------------
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class MixerImpl:
     """序列混合器。输入输出都是 ``[L, d]``。
 
@@ -95,7 +95,7 @@ class MixerImpl:
     forward: Callable[[Tensor, dict[str, Tensor], int], Tensor]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class FfnImpl:
     """逐位置前馈。输入输出都是 ``[L, d]``。"""
 
@@ -104,7 +104,7 @@ class FfnImpl:
     forward: Callable[[Tensor, dict[str, Tensor], int], Tensor]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class NormImpl:
     name: str
     param_defs: Callable[[int], list[ParamDef]]

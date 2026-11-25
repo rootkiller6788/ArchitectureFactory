@@ -66,7 +66,7 @@ def _distance(a: Sequence[float], b: Sequence[float]) -> float:
     return math.sqrt(sum((x - y) * (x - y) for x, y in zip(a, b)))
 
 
-@dataclass
+@dataclass(slots=True)
 class SurrogateModel:
     """拟合好的代理。``xs``/``ys`` 是训练点（特征 + 标量化目标）。"""
 

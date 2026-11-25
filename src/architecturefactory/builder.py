@@ -59,7 +59,7 @@ def _shape_size(shape: tuple[int, ...]) -> int:
 # ----------------------------------------------------------------------
 # 模型
 # ----------------------------------------------------------------------
-@dataclass
+@dataclass(slots=True)
 class BlockParams:
     """一个 block 的参数字典（已按组件切好，装配时直接递进去）。"""
 
@@ -69,7 +69,7 @@ class BlockParams:
     ffn: dict[str, Tensor]
 
 
-@dataclass
+@dataclass(slots=True)
 class Model:
     """可训练模型。``forward`` 返回**全部位置**的 logits ``[L, V]``。
 

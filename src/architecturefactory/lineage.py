@@ -29,7 +29,7 @@ from .schema import Trial
 __all__ = ["Node", "Edge", "Lineage", "build_lineage"]
 
 
-@dataclass
+@dataclass(slots=True)
 class Node:
     node_id: str
     kind: str  # "propose" | "evaluate"
@@ -60,7 +60,7 @@ class Node:
         )
 
 
-@dataclass
+@dataclass(slots=True)
 class Edge:
     a: str  # 源
     b: str  # 目标
@@ -74,7 +74,7 @@ class Edge:
         return cls(a=d["a"], b=d["b"], kind=d["kind"])
 
 
-@dataclass
+@dataclass(slots=True)
 class Lineage:
     nodes: list[Node] = field(default_factory=list)
     edges: list[Edge] = field(default_factory=list)
