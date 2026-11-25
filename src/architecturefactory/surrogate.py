@@ -76,27 +76,33 @@ class SurrogateModel:
     source_trials: list[Trial]
 
     def predict(self, spec: ArchSpec) -> tuple[float, float, float]:
-        """返回 ``(mu, sigma, 到最近训练点的距离)``。"""
+        """返回 ``(mu, sigma, 到最近训练点的距离)``。
+
+        权重与距离只在第一遍算一次并存下来，第二遍算加权方差时直接复用 ——
+        原来这里把每个训练点的距离平方和 ``exp`` 又算了一遍。累加顺序不变，
+        结果逐位相同。
+        """
         x = encode(spec)
         h = self.bandwidth
+        denom = 2.0 * h * h
         num = 0.0
         den = 0.0
         nearest = math.inf
+        weighted: list[tuple[float, float]] = []  # (w, y)
         for xi, yi in zip(self.xs, self.ys):
             d2 = sum((p - q) * (p - q) for p, q in zip(x, xi))
             if d2 < nearest:
                 nearest = d2
-            w = math.exp(-d2 / (2.0 * h * h))
+            w = math.exp(-d2 / denom)
             num += w * yi
             den += w
+            weighted.append((w, yi))
         if den <= 0.0:
             mu = sum(self.ys) / len(self.ys) if self.ys else 0.0
             return mu, 0.0, math.sqrt(nearest)
         mu = num / den
         var = 0.0
-        for xi, yi in zip(self.xs, self.ys):
-            d2 = sum((p - q) * (p - q) for p, q in zip(x, xi))
-            w = math.exp(-d2 / (2.0 * h * h))
+        for w, yi in weighted:
             var += w * (yi - mu) * (yi - mu)
         var /= den
         return mu, math.sqrt(max(var, 0.0)), math.sqrt(nearest)
