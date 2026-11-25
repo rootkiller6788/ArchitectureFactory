@@ -123,6 +123,9 @@ def run_pipeline(cfg: dict[str, Any], progress: Callable[[str], None] | None = N
 
     #: 跨搜索器共享的「已评估」集合 —— 架构数据库只有一份，同一 spec_id 只评估一次。
     seen: set[str] = set()
+    #: 已经落进 result 的 trial_id。防御性去重原先用 ``result.find`` 线性扫描，
+    #: 试验一多就是 O(n²)；集合查一次 O(1)。
+    recorded: set[str] = set()
 
     for name in search_cfg["searchers"]:
         searcher = make_searcher(
@@ -144,7 +147,7 @@ def run_pipeline(cfg: dict[str, Any], progress: Callable[[str], None] | None = N
                 )
                 continue
             trial = outcome.trial
-            if result.find(trial.trial_id) is not None:
+            if trial.trial_id in recorded:
                 # 防御性去重：搜索器已共享 seen，这里兜住任何漏网的重复
                 continue
             trial.searcher = name
@@ -152,6 +155,7 @@ def run_pipeline(cfg: dict[str, Any], progress: Callable[[str], None] | None = N
             trial.propose_node = f"p:{trial.trial_id}"
             trial.evaluate_node = f"e:{trial.trial_id}"
             searcher.observe(trial)
+            recorded.add(trial.trial_id)
             result.trials.append(trial)
             if progress is not None:
                 say(
