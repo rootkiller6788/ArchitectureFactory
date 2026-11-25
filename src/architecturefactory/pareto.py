@@ -53,6 +53,24 @@ def _to_minimize(
 # ----------------------------------------------------------------------
 # 支配 / 前沿
 # ----------------------------------------------------------------------
+def _dominates_min(
+    am: Sequence[float], bm: Sequence[float], tol: float
+) -> bool:
+    """已转成**最小化坐标**的支配判断。
+
+    成对比较（前沿、非支配排序）是 O(n²) 的，若每次都比较原始坐标，就会在
+    每对上面重复调用 :func:`_to_minimize`。把归一化提到循环外之后，内层只剩
+    逐元素比较 —— 结果逐位不变，常数项显著下降。
+    """
+    strictly_better = False
+    for x, y in zip(am, bm):
+        if x > y + tol:
+            return False
+        if x < y - tol:
+            strictly_better = True
+    return strictly_better
+
+
 def dominates(
     a: Sequence[float],
     b: Sequence[float],
@@ -64,15 +82,9 @@ def dominates(
     ``tol`` 给数值噪声留余量：小于 ``tol`` 的差视为「不差」。浮点相等判断必须
     留余量，否则同一组数在两次运行里可能给出不同的前沿（见 skill 坑 21）。
     """
-    am = _to_minimize(a, objectives)
-    bm = _to_minimize(b, objectives)
-    strictly_better = False
-    for x, y in zip(am, bm):
-        if x > y + tol:
-            return False
-        if x < y - tol:
-            strictly_better = True
-    return strictly_better
+    return _dominates_min(
+        _to_minimize(a, objectives), _to_minimize(b, objectives), tol
+    )
 
 
 def frontier_ids(
@@ -83,14 +95,15 @@ def frontier_ids(
     if not ts:
         return []
     vecs = {t.trial_id: objective_vector(t, objectives) for t in ts}
+    mins = {tid: _to_minimize(v, objectives) for tid, v in vecs.items()}
     out: list[str] = []
     for t in ts:
-        v = vecs[t.trial_id]
+        v = mins[t.trial_id]
         dominated = False
         for u in ts:
             if u.trial_id == t.trial_id:
                 continue
-            if dominates(vecs[u.trial_id], v, objectives, tol):
+            if _dominates_min(mins[u.trial_id], v, tol):
                 dominated = True
                 break
         if not dominated:
@@ -106,7 +119,7 @@ def non_dominated_sort(
 ) -> list[list[str]]:
     """NSGA-II 快速非支配排序，返回 ``[[rank0 的 id], [rank1 的 id], ...]``。"""
     n = len(trials)
-    vecs = [objective_vector(t, objectives) for t in trials]
+    mins = [_to_minimize(objective_vector(t, objectives), objectives) for t in trials]
     ids = [t.trial_id for t in trials]
     dominated_by: list[list[int]] = [[] for _ in range(n)]
     count = [0] * n
@@ -115,9 +128,9 @@ def non_dominated_sort(
         for j in range(n):
             if i == j:
                 continue
-            if dominates(vecs[i], vecs[j], objectives, tol):
+            if _dominates_min(mins[i], mins[j], tol):
                 dominated_by[i].append(j)
-            elif dominates(vecs[j], vecs[i], objectives, tol):
+            elif _dominates_min(mins[j], mins[i], tol):
                 count[i] += 1
         if count[i] == 0:
             fronts[0].append(i)
