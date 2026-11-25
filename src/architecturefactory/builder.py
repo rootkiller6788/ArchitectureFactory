@@ -75,6 +75,10 @@ class Model:
 
     只监督最后一个位置时由调用方 :func:`architecturefactory.autograd.gather_rows`
     取行 —— 模型不替调用方猜「你要哪几个位置」。
+
+    ``plan`` 是构建时解析好的 ``(norm, mixer, ffn)`` 实现列表：注册表只在
+    装配时查一次，前向循环里不再逐层做字典查找。这也让「装配用的是哪份实现」
+    在模型对象上可见。
     """
 
     ir: ArchIR
@@ -84,6 +88,7 @@ class Model:
     seed: int = 0
     max_seq_len: int = 0
     spec: ArchSpec | None = None
+    plan: list[tuple[Any, Any, Any]] = field(default_factory=list)
 
     # -- 前向 ----------------------------------------------------------
     def _embed(self, ids: Sequence[int]) -> Tensor:
@@ -93,28 +98,35 @@ class Model:
             x = add(x, gather_rows(self.params["pos_emb"], range(len(ids))))
         return x
 
-    def forward(self, ids: Sequence[int]) -> Tensor:
+    def _resolve_plan(self) -> list[tuple[Any, Any, Any]]:
+        """手搓的 Model 可能没有 plan —— 按 IR 补一份，行为与 build 一致。"""
+        if len(self.plan) != len(self.ir.blocks):
+            self.plan = [
+                (norm_impl(b.norm), mixer_impl(b.mixer), ffn_impl(b.ffn))
+                for b in self.ir.blocks
+            ]
+        return self.plan
+
+    def _run_blocks(self, ids: Sequence[int]) -> Tensor:
+        """Embedding → Block × N；``forward`` 与 ``hidden`` 共用这一条路径。"""
         x = self._embed(ids)
-        for b, bp in zip(self.ir.blocks, self.blocks):
-            h = norm_impl(b.norm).forward(x, bp.norm1)
-            h = mixer_impl(b.mixer).forward(h, bp.mixer, b.n_heads)
+        for b, bp, (norm, mixer, ffn) in zip(
+            self.ir.blocks, self.blocks, self._resolve_plan()
+        ):
+            h = norm.forward(x, bp.norm1)
+            h = mixer.forward(h, bp.mixer, b.n_heads)
             x = add(x, h)  # pre-norm 残差
-            h2 = norm_impl(b.norm).forward(x, bp.norm2)
-            h2 = ffn_impl(b.ffn).forward(h2, bp.ffn, b.n_experts)
+            h2 = norm.forward(x, bp.norm2)
+            h2 = ffn.forward(h2, bp.ffn, b.n_experts)
             x = add(x, h2)
-        return matmul(x, self.params["head"])  # [L,V]
+        return x
+
+    def forward(self, ids: Sequence[int]) -> Tensor:
+        return matmul(self._run_blocks(ids), self.params["head"])  # [L,V]
 
     def hidden(self, ids: Sequence[int]) -> Tensor:
         """到最后一个 block 输出为止（不含 head）。探针/画图用。"""
-        x = self._embed(ids)
-        for b, bp in zip(self.ir.blocks, self.blocks):
-            h = norm_impl(b.norm).forward(x, bp.norm1)
-            h = mixer_impl(b.mixer).forward(h, bp.mixer, b.n_heads)
-            x = add(x, h)
-            h2 = norm_impl(b.norm).forward(x, bp.norm2)
-            h2 = ffn_impl(b.ffn).forward(h2, bp.ffn, b.n_experts)
-            x = add(x, h2)
-        return x
+        return self._run_blocks(ids)
 
     # -- 参数 ----------------------------------------------------------
     def parameter_list(self) -> list[Tensor]:
@@ -178,13 +190,16 @@ def build(
         )
     for i, b in enumerate(ir.blocks):
         pre = f"block{i}."
+        # 每种组件各查一次注册表：造参数与前向都复用这份实现
+        norm, mixer, ffn = norm_impl(b.norm), mixer_impl(b.mixer), ffn_impl(b.ffn)
         bp = BlockParams(
-            norm1=make(pre + "norm1.", norm_impl(b.norm).param_defs(d)),
-            mixer=make(pre + "mixer.", mixer_impl(b.mixer).param_defs(d, b.n_heads)),
-            norm2=make(pre + "norm2.", norm_impl(b.norm).param_defs(d)),
-            ffn=make(pre + "ffn.", ffn_impl(b.ffn).param_defs(d, b.n_experts)),
+            norm1=make(pre + "norm1.", norm.param_defs(d)),
+            mixer=make(pre + "mixer.", mixer.param_defs(d, b.n_heads)),
+            norm2=make(pre + "norm2.", norm.param_defs(d)),
+            ffn=make(pre + "ffn.", ffn.param_defs(d, b.n_experts)),
         )
         model.blocks.append(bp)
+        model.plan.append((norm, mixer, ffn))
     params["head"] = Tensor(_init_values((d, ir.vocab_size), KIND_WEIGHT, init_scale,
                                          make_rng(seed, "init", fp, "head")))
     model.params = params
