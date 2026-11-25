@@ -605,6 +605,8 @@ def layernorm(a: Tensor, w: Tensor, b: Tensor, eps: float = 1e-5) -> Tensor:
     m, n = len(A), len(A[0])
     C = [[0.0] * n for _ in range(m)]
     xhat = [[0.0] * n for _ in range(m)]
+    #: 前向已经算过 ``x - μ``；反向也要用它，存下来避免重算整行的均值。
+    centered = [[0.0] * n for _ in range(m)]
     inv = [0.0] * m
     for i in range(m):
         row = A[i]
@@ -613,7 +615,9 @@ def layernorm(a: Tensor, w: Tensor, b: Tensor, eps: float = 1e-5) -> Tensor:
         s = 1.0 / math.sqrt(var + eps)
         inv[i] = s
         for j in range(n):
-            xh = (row[j] - mu) * s
+            c = row[j] - mu
+            centered[i][j] = c
+            xh = c * s
             xhat[i][j] = xh
             C[i][j] = xh * w.data[j] + b.data[j]
     out = Tensor(C, (a, w, b))
@@ -621,16 +625,15 @@ def layernorm(a: Tensor, w: Tensor, b: Tensor, eps: float = 1e-5) -> Tensor:
     def bw(g: list[Any]) -> None:
         Wd = w.data
         for i in range(m):
-            row = A[i]
-            mu = sum(row) / n
+            c = centered[i]
             s = inv[i]
             # gxhat = g * w
             gxh = [g[i][j] * Wd[j] for j in range(n)]
-            gvar = sum(gxh[j] * (row[j] - mu) for j in range(n)) * (-0.5) * (s ** 3)
+            gvar = sum(gxh[j] * c[j] for j in range(n)) * (-0.5) * (s ** 3)
             gmean = sum(gxh[j] for j in range(n)) * (-s)
             # Σ(x-μ)=0 ⇒ gvar 对 mean 的贡献项为 0
             for j in range(n):
-                a.grad[i][j] += gxh[j] * s + gvar * 2.0 * (row[j] - mu) / n + gmean / n
+                a.grad[i][j] += gxh[j] * s + gvar * 2.0 * c[j] / n + gmean / n
                 w.grad[j] += g[i][j] * xhat[i][j]
                 b.grad[j] += g[i][j]
 
