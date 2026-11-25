@@ -79,7 +79,7 @@ class Searcher:
             raise ValueError("设计空间展开为空，检查 configs 的 space 段")
         #: 候选池的 spec_id 与 ``self.pool`` 一一对应。池子是规范化的，
         #: 预计算一次后，每次提议只比字符串，不再反复调用 ``canonical()``。
-        self.pool_ids = [s.spec_id for s in self.pool]
+        self.pool_ids = [s._canonical_id() for s in self.pool]
         self.rng = make_rng(seed, "search", self.name)
         #: **跨搜索器共享**的「已提议」集合。三个搜索器各跑各的，但架构数据库只有一份：
         #: 同一个 ``spec_id`` 只该被评估一次。否则前沿上会出现重复点、
@@ -100,9 +100,10 @@ class Searcher:
     def _fresh(self, spec: ArchSpec) -> ArchSpec | None:
         """规范化后判重：**同一个 spec_id 只提议一次**。"""
         s = spec.canonical()
-        if s.spec_id in self.proposed:
+        sid = s._canonical_id()
+        if sid in self.proposed:
             return None
-        self.proposed.add(s.spec_id)
+        self.proposed.add(sid)
         return s
 
     def _mutate(self, spec: ArchSpec) -> ArchSpec:
@@ -182,7 +183,7 @@ class RandomSearcher(Searcher):
         super().__init__(*a, **kw)
         self.order = list(self.pool)
         self.rng.shuffle(self.order)
-        self.order_ids = [s.spec_id for s in self.order]
+        self.order_ids = [s._canonical_id() for s in self.order]
         self.cursor = 0
 
     def propose(self, history: list[Trial]) -> ArchSpec | None:

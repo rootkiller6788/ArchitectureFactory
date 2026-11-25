@@ -83,16 +83,24 @@ class ArchSpec:
             residual=self.residual,
         )
 
+    def _canonical_id(self) -> str:
+        """**假定 ``self`` 已经规范化**，直接拼 id。
+
+        仅供本包内的热路径使用（空间展开、候选池、搜索判重）：那些地方手里
+        的 spec 已经过了 :meth:`canonical`，再调一次 :attr:`spec_id` 只会多
+        分配一个临时 ``ArchSpec``。外部请一律用 :attr:`spec_id`。
+        """
+        parts = [self.mixer, self.ffn, self.norm, f"l{self.n_layers}", f"d{self.d_model}"]
+        if self.mixer in ATTENTIVE_MIXERS:
+            parts.append(f"h{self.n_heads}")
+        if self.ffn == "moe":
+            parts.append(f"e{self.n_experts}")
+        return "-".join(parts)
+
     @property
     def spec_id(self) -> str:
         """可逆短标识，例如 ``attention-swiglu-rmsnorm-l2-d24-h4``。"""
-        s = self.canonical()
-        parts = [s.mixer, s.ffn, s.norm, f"l{s.n_layers}", f"d{s.d_model}"]
-        if s.mixer in ATTENTIVE_MIXERS:
-            parts.append(f"h{s.n_heads}")
-        if s.ffn == "moe":
-            parts.append(f"e{s.n_experts}")
-        return "-".join(parts)
+        return self.canonical()._canonical_id()
 
     @classmethod
     def from_spec_id(cls, spec_id: str) -> "ArchSpec":

@@ -150,16 +150,17 @@ def expand_space(space: dict[str, Any], vocab_size: int = 0) -> list[ArchSpec]:
     specs: list[ArchSpec] = []
     seen: set[str] = set()
     for mixer in space["mixers"]:
+        # heads / experts 只随 mixer / ffn 变化，提到内层循环外算一次
+        heads: Iterable[int] = (
+            space.get("n_heads", [1]) if mixer in ATTENTIVE_MIXERS else [1]
+        )
         for ffn in space["ffns"]:
+            experts: Iterable[int] = (
+                space.get("n_experts", [0]) if ffn == "moe" else [0]
+            )
             for norm in space["norms"]:
                 for n_layers in space["n_layers"]:
                     for d_model in space["d_models"]:
-                        heads: Iterable[int] = (
-                            space.get("n_heads", [1]) if mixer in ATTENTIVE_MIXERS else [1]
-                        )
-                        experts: Iterable[int] = (
-                            space.get("n_experts", [0]) if ffn == "moe" else [0]
-                        )
                         for h in heads:
                             for e in experts:
                                 if mixer in ATTENTIVE_MIXERS and d_model % h != 0:
@@ -173,9 +174,10 @@ def expand_space(space: dict[str, Any], vocab_size: int = 0) -> list[ArchSpec]:
                                     n_heads=h,
                                     n_experts=e,
                                 ).canonical()
-                                if spec.spec_id in seen:
+                                sid = spec._canonical_id()  # 已是规范形，别再分配
+                                if sid in seen:
                                     continue
-                                seen.add(spec.spec_id)
+                                seen.add(sid)
                                 specs.append(spec)
     return specs
 
