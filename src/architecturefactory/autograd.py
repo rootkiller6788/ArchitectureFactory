@@ -28,8 +28,12 @@ from typing import Any, Callable, Sequence
 #: C 速度的内积。``math.sumprod`` 自 CPython 3.12 起提供（见模块 docstring）。
 _dot = math.sumprod
 
+#: 是否记录计算图。由 :class:`no_grad` 临时关闭；评估阶段用得到。
+_GRAD_ENABLED = True
+
 __all__ = [
     "Tensor",
+    "no_grad",
     "constant",
     "ones",
     "zeros",
@@ -88,6 +92,31 @@ def _shape(x: Sequence[Any]) -> tuple[int, ...]:
 # ----------------------------------------------------------------------
 # 张量
 # ----------------------------------------------------------------------
+class no_grad:
+    """临时关闭梯度记录（评估/推理用）。
+
+    关闭期间新建的 :class:`Tensor` **不分配梯度缓冲区、不保留父张量与
+    backward 闭包** —— 前向计算照常，只是不再为「可能到来的反向」付出内存与
+    构造开销。评估集在每个检查点都要整份跑一遍，这部分开销是纯浪费。
+
+    可嵌套；退出时恢复进入前的状态。**关闭期间产生的张量不能再 backward**
+    （它没有计算图），这正是不希望发生的用法。
+    """
+
+    __slots__ = ("_prev",)
+
+    def __enter__(self) -> "no_grad":
+        global _GRAD_ENABLED
+        self._prev = _GRAD_ENABLED
+        _GRAD_ENABLED = False
+        return self
+
+    def __exit__(self, *exc: Any) -> bool:
+        global _GRAD_ENABLED
+        _GRAD_ENABLED = self._prev
+        return False
+
+
 class Tensor:
     """一个值 + 它的梯度 + 它从哪些父张量算来。"""
 
@@ -100,9 +129,14 @@ class Tensor:
         backward: Callable[[list[Any]], None] | None = None,
     ) -> None:
         self.data = data
-        self.grad = _zeros_like(data)
-        self._parents = parents
-        self._backward = backward
+        if _GRAD_ENABLED:
+            self.grad = _zeros_like(data)
+            self._parents = parents
+            self._backward = backward
+        else:  # no_grad：省掉梯度缓冲与计算图
+            self.grad = []
+            self._parents = ()
+            self._backward = None
 
     @property
     def shape(self) -> tuple[int, ...]:

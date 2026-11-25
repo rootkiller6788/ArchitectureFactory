@@ -30,7 +30,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable, Sequence
 
-from .autograd import gather_rows, scale, softmax_cross_entropy
+from .autograd import gather_rows, no_grad, scale, softmax_cross_entropy
 from .builder import Model
 from .rng import make_rng
 
@@ -219,7 +219,7 @@ def train_step_loss(
         loss = softmax_cross_entropy(last, [ds.targets[i]])
         total = loss if total is None else _add_scalar(total, loss)
         row = last.data[0]
-        pred = max(range(len(row)), key=lambda j: row[j])
+        pred = row.index(max(row))  # C 层 max/index，避免逐元素 lambda
         if pred == ds.targets[i]:
             correct += 1
     assert total is not None
@@ -230,18 +230,24 @@ def train_step_loss(
 
 
 def evaluate(model: Model, ds: Dataset) -> tuple[float, float]:
-    """返回 ``(accuracy, mean_loss)``。只前向，不做参数更新。"""
+    """返回 ``(accuracy, mean_loss)``。只前向，不做参数更新。
+
+    **整段走** :class:`architecturefactory.autograd.no_grad`：评估不反向，
+    构造计算图、给每个中间张量分配梯度缓冲都是纯浪费。前向数值与训练路径
+    完全相同，因此 accuracy/loss 逐位不变。
+    """
     total_loss = 0.0
     correct = 0
     n = len(ds)
-    for i in range(n):
-        ids = ds.inputs[i]
-        logits = model.forward(ids)
-        last = gather_rows(logits, [len(ids) - 1])
-        loss = softmax_cross_entropy(last, [ds.targets[i]])
-        total_loss += loss.data[0][0]
-        row = last.data[0]
-        pred = max(range(len(row)), key=lambda j: row[j])
-        if pred == ds.targets[i]:
-            correct += 1
+    with no_grad():
+        for i in range(n):
+            ids = ds.inputs[i]
+            logits = model.forward(ids)
+            last = gather_rows(logits, [len(ids) - 1])
+            loss = softmax_cross_entropy(last, [ds.targets[i]])
+            total_loss += loss.data[0][0]
+            row = last.data[0]
+            pred = row.index(max(row))  # 并列时取首个，与 max(..., key=) 一致
+            if pred == ds.targets[i]:
+                correct += 1
     return (correct / n if n else 0.0, total_loss / n if n else 0.0)

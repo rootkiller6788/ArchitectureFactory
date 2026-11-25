@@ -194,3 +194,28 @@ def test_backward_survives_deep_graph():
         y = ag.scale(y, 1.0)
     y.backward()
     assert x.grad == [1.0]
+
+
+def test_no_grad_matches_forward_and_skips_graph(rng):
+    """no_grad 下前向数值不变，但不分配梯度、不保留父张量。"""
+    a, b = ag.constant(rnd2(3, 4, rng)), ag.constant(rnd2(4, 2, rng))
+    expected = ag.matmul(a, b).data
+
+    with ag.no_grad():
+        c = ag.matmul(a, b)
+    assert c.data == expected
+    assert c.grad == [] and c._parents == ()
+
+    # 退出后必须恢复记录
+    d = ag.matmul(a, b)
+    assert d.grad != [] and len(d._parents) == 2
+
+
+def test_no_grad_is_nestable(rng):
+    a, b = ag.constant(rnd2(2, 3, rng)), ag.constant(rnd2(3, 2, rng))
+    with ag.no_grad():
+        with ag.no_grad():
+            pass
+        inner_done = ag.matmul(a, b)  # 仍在 no_grad 中
+    assert inner_done.grad == []
+    assert ag.matmul(a, b).grad != []
